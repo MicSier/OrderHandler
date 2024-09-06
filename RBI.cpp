@@ -23,6 +23,17 @@ enum class State
     Filled
 };
 
+std::string enumStatetostring(State s)
+{
+    switch (s)
+    {
+    case State::New     :    return "New";
+    case State::Pending :    return "Pending";
+    case State::Filled  :    return "Filled";
+    }
+    //unreachable
+    exit(1);
+}
 struct Order {
     Financial_Instrument instrument;
     double price;
@@ -30,6 +41,11 @@ struct Order {
     State state;
     Order(const Financial_Instrument& instrument, const double& price, const double& volume, const State& state) : instrument(instrument), price(price), volume(volume), state(state) {}
 };
+
+std::queue<Order> orderPool;
+std::mutex pool_mutex;
+std::condition_variable condition_var;
+bool streaming_done;
 
 #define Data_Time std::chrono::system_clock::time_point
 
@@ -103,29 +119,22 @@ public:
             << "Market_Data:" << std::endl
             << "instrument: (" << event.md.instrument.id << ", " << event.md.instrument.isin << ") "
             << "price: " << event.md.price << std::endl;
-        std::lock_guard<std::mutex> guard(file_mutex);
-    
-        // Open the file in append mode
-        // TO DO: get rid of opening file inside onEvent
-        // TO DO: Execute strategy check here and only stream when true
-        std::ofstream file;
-        file.open(filename, std::ios::app);
-
-        if (file.is_open()) {
-        file << "Listener " << id_ << " received event: " << event.id
-            << " with message: " << event.message << std::endl
-            << "Market_Data:" << std::endl
-            << "instrument: (" << event.md.instrument.id << ", " << event.md.instrument.isin << ") "
-            << "price: " << event.md.price << std::endl;
-        file.close();
-    } else {
-        std::cerr << "Unable to open file." << std::endl;
-    }
+        
+   
+        // TO DO: make strategy more general using strategy class
         double priceTreshold = 100.0;
         if (event.md.price >= priceTreshold)
         {
-            Order newOrder (event.md.instrument, event.md.price, 100, State::New);
+            Order newOrder (event.md.instrument, event.md.price, 100, State::New); 
+
+            // Lock the queue and push the order
+            {
+                std::lock_guard<std::mutex> lock(pool_mutex);
+                orderPool.push(newOrder);
+            }
+
         }
+
     }
 
     void start() {
@@ -160,6 +169,33 @@ private:
     std::mutex stop_mutex_;    
     bool stop_;
 };
+
+std::ofstream file;
+
+// Stremer function to write orders to the file asynchronously
+void fileStreamer() {
+
+    while (true) {
+        std::unique_lock<std::mutex> lock(pool_mutex);
+        
+        condition_var.wait(lock, []{ return !orderPool.empty() || streaming_done; });
+
+        while (!orderPool.empty()) {
+            Order order = orderPool.front();
+            orderPool.pop();
+            std::lock_guard<std::mutex> guard(file_mutex);
+            file << "instrument: (" << order.instrument.id << ", " << order.instrument.isin << ") " << std::endl
+                << "price: " << order.price << std::endl
+                << "Volume: " << order.volume << std::endl
+                << "state:  " << enumStatetostring(order.state) << std::endl;
+        }
+
+        if (streaming_done && orderPool.empty()) {
+            break;
+        }
+    }
+    
+}
 
 // class for generating dummy market data before I implement Market Data server
 class EventGenerator {
@@ -206,13 +242,24 @@ private:
 
 
 int main() {
-    EventSource eventSource;
+    // Open the file once and keep it open during the program's life
+    file=std::ofstream(filename, std::ios::app);
+    if (!file.is_open()) {
+        std::cerr << "Unable to open file for writing!" << std::endl;
+        return 1;
+    }
 
+    EventSource eventSource;
     const int n_threads = 5;
+
+    std::vector<std::thread> streamers;
     std::vector<std::unique_ptr<MarketDataListener>> listeners;
 
     for (int i = 0; i < n_threads; i++)
+    {
+        streamers.emplace_back(fileStreamer);
         listeners.emplace_back(std::make_unique<MarketDataListener>(i + 1, &eventSource));
+    }
     
     for (const auto& listener : listeners)
         listener->start();
@@ -226,8 +273,20 @@ int main() {
     for (const auto& listener : listeners)
         listener->stop();
 
+    // Indicate that writing is done and notify all streamers thread
+    {
+        std::lock_guard<std::mutex> lock(pool_mutex);
+        streaming_done = true;
+    }
+    condition_var.notify_all();
+
+    // Wait for streamers to finish
+    for (auto& streamer: streamers)
+        streamer.join();
+
     eventGenerator.stop();
     std::cout << "Event generation and listeners stopped." << std::endl;
+    file.close();  
 
     return 0;
 }
