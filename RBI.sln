@@ -5,6 +5,8 @@ VisualStudioVersion = 17.9.34723.18
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RBI", "RBI.vcxproj", "{CB71FF8B-482B-4AC2-A2DA-D0FD9685F9DD}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MarketDataVendor", "MarketDataVendor\MarketDataVendor.vcxproj", "{E3DA0A19-0D63-4B69-888F-4550732D9FB4}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -21,6 +23,14 @@ Global
 		{CB71FF8B-482B-4AC2-A2DA-D0FD9685F9DD}.Release|x64.Build.0 = Release|x64
 		{CB71FF8B-482B-4AC2-A2DA-D0FD9685F9DD}.Release|x86.ActiveCfg = Release|Win32
 		{CB71FF8B-482B-4AC2-A2DA-D0FD9685F9DD}.Release|x86.Build.0 = Release|Win32
+		{E3DA0A19-0D63-4B69-888F-4550732D9FB4}.Debug|x64.ActiveCfg = Debug|x64
+		{E3DA0A19-0D63-4B69-888F-4550732D9FB4}.Debug|x64.Build.0 = Debug|x64
+		{E3DA0A19-0D63-4B69-888F-4550732D9FB4}.Debug|x86.ActiveCfg = Debug|Win32
+		{E3DA0A19-0D63-4B69-888F-4550732D9FB4}.Debug|x86.Build.0 = Debug|Win32
+		{E3DA0A19-0D63-4B69-888F-4550732D9FB4}.Release|x64.ActiveCfg = Release|x64
+		{E3DA0A19-0D63-4B69-888F-4550732D9FB4}.Release|x64.Build.0 = Release|x64
+		{E3DA0A19-0D63-4B69-888F-4550732D9FB4}.Release|x86.ActiveCfg = Release|Win32
+		{E3DA0A19-0D63-4B69-888F-4550732D9FB4}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
