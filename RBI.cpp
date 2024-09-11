@@ -1,102 +1,21 @@
 #include <iostream>
 #include <thread>
 #include <mutex>
-#include <condition_variable>
 #include <vector>
 #include <queue>
 #include <chrono>
 #include <fstream>
 
 #include <cstring>
-#ifdef _WIN32
-    #include <winsock2.h>
-    #pragma comment(lib, "ws2_32.lib")
-    #include <Ws2tcpip.h>
-#else
-    #include <sys/socket.h>
-    #include <arpa/inet.h>
-    #include <unistd.h>
-#endif
-
-const int PORT = 8080;
-const int BUFFER_SIZE = 1024;
-
-std::string encrypt_decrypt(std::string data) {
-    const char XOR_KEY = 0xAA; // Simple XOR key
-
-    for (size_t i = 0; i < data.size(); ++i) {
-        data[i] ^= XOR_KEY;
-    }
-    return data;
-}
-
-std::string chop_by_delimiter(std::string &input, char delimiter) {
-    // Find the position of the delimiter in the input string
-    size_t delimiterPos = input.find(delimiter);
-    
-    // If the delimiter is not found, return the entire input string and clear the input string
-    if (delimiterPos == std::string::npos) {
-        std::string result = input;
-        input.clear();
-        return result;
-    }
-    
-    // Extract the substring before the delimiter
-    std::string result = input.substr(0, delimiterPos);
-    
-    // Erase the part of the input string before the delimiter
-    input.erase(0, delimiterPos + 1);
-    
-    // Remove white space characters from the result
-    result.erase(std::remove_if(result.begin(), result.end(), [](unsigned char c) { return std::isspace(c); }), result.end());
-
-    // Return the extracted substring
-    return result;
-}
-void init_sockets() {
-#ifdef _WIN32
-    WSADATA wsaData;
-    WSAStartup(MAKEWORD(2, 2), &wsaData);
-#endif
-}
-
-void cleanup_sockets() {
-#ifdef _WIN32
-    WSACleanup();
-#endif
-}
-
-int inetPtonCross(sockaddr_in& service) {
-#ifdef _WIN32 
-    return InetPton(AF_INET, __TEXT("127.0.0.1"), &service.sin_addr);
-#elif         
-    return inet_pton(AF_INET, "127.0.0.1", &service.sin_addr);
-#endif        
-}
-
-int readCross(int socket, char* buffer, const int BUFFER_SIZE) {
-#ifdef _WIN32 
-    return recv(socket, buffer, BUFFER_SIZE,0);
-#elif         
-    return read(socket, buffer, BUFFER_SIZE);
-#endif        
-}
-
-void closeCross(int socket) {
-#ifdef _WIN32
-    closesocket(socket);  
-#elif
-    close(socket);      
-#endif
-}
+#include "common.cpp"
 
 std::mutex file_mutex;
 const std::string filename = "OrderPool.txt";
 
-struct Financial_Instrument {
+struct FinancialInstrument {
     std::string id;
     std::string isin;
-    Financial_Instrument(const std::string& id, const std::string& isin) : id(id), isin(isin) {}
+    FinancialInstrument(const std::string& id, const std::string& isin) : id(id), isin(isin) {}
 };
 
 enum class State
@@ -118,11 +37,11 @@ std::string enumStatetostring(State s)
     exit(1);
 }
 struct Order {
-    Financial_Instrument instrument;
+    FinancialInstrument instrument;
     double price;
     double volume;
     State state;
-    Order(const Financial_Instrument& instrument, const double& price, const double& volume, const State& state) : instrument(instrument), price(price), volume(volume), state(state) {}
+    Order(const FinancialInstrument& instrument, const double& price, const double& volume, const State& state) : instrument(instrument), price(price), volume(volume), state(state) {}
 };
 
 std::queue<Order> orderPool;
@@ -132,31 +51,24 @@ bool streaming_done;
 
 #define Data_Time std::chrono::system_clock::time_point
 
-struct Market_Data {
-    Financial_Instrument instrument;
+struct MarketData {
+    FinancialInstrument instrument;
     double price;
     Data_Time timestamp;
-    Market_Data(const Financial_Instrument& instrument, const double& price, const Data_Time& timestamp) : instrument(instrument), price(price), timestamp(timestamp) {}
+    MarketData(const FinancialInstrument& instrument, const double& price, const Data_Time& timestamp) : instrument(instrument), price(price), timestamp(timestamp) {}
 };
 
 struct Trading_Strategy {
-    std::vector<Financial_Instrument> instruments;
+    std::vector<FinancialInstrument> instruments;
     std::vector<Order> orders;
     std::string name;
     Trading_Strategy(const std::string& name) : instruments({}), orders({}), name(name) {}
 };
 
-// data type for receving market data 
-struct Event {
-    int id;
-    std::string message;
-    Market_Data md;
-};
-
-// abstract class no longer needed
+// abstract class 
 class EventListener {
 public:
-    virtual void onEvent(const Event& event) = 0;
+    virtual void onEvent(const MarketData& trigger) = 0;
     virtual ~EventListener() {}
 };
 
@@ -167,57 +79,53 @@ public:
         listeners_.push_back(listener);
     }
 
-    void fireEvent(const Event& event) {
-        std::lock_guard<std::mutex> lock(event_queue_mutex_);
-        event_queue_.push(event);
+    void fireEvent(const MarketData& trigger) {
+        std::lock_guard<std::mutex> lock(trigger_queue_mutex_);
+        trigger_queue_.push(trigger);
         cv_.notify_all();
     }
 
-    Event getNextEvent() {
-        std::unique_lock<std::mutex> lock(event_queue_mutex_);
-        cv_.wait(lock, [this]() { return !event_queue_.empty(); });
+    MarketData getNextData() {
+        std::unique_lock<std::mutex> lock(trigger_queue_mutex_);
+        cv_.wait(lock, [this]() { return !trigger_queue_.empty(); });
 
-        Event event = event_queue_.front();
-        event_queue_.pop();
-        return event;
+        MarketData trigger = trigger_queue_.front();
+        trigger_queue_.pop();
+        return trigger;
     }
 
 private:
     std::vector<EventListener*> listeners_;
-    std::queue<Event> event_queue_;
-    std::mutex event_queue_mutex_;
+    std::queue<MarketData> trigger_queue_;
+    std::mutex trigger_queue_mutex_;
     std::condition_variable cv_;
 };
 
-// class
+// class checking strategy condition on maket data trigger and appending to streaming queue if condition is met
 class MarketDataListener : public EventListener {
 public:
     MarketDataListener(int id, EventSource* eventSource)
         : id_(id), eventSource_(eventSource), stop_(false) {}
 
-    void onEvent(const Event& event) override {
+    void onEvent(const MarketData& trigger) override {
         std::lock_guard<std::mutex> lock(listener_mutex_);
-        std::cout << "Listener " << id_ << " received event: " << event.id
-            << " with message: " << event.message << std::endl
-            << "Market_Data:" << std::endl
-            << "instrument: (" << event.md.instrument.id << ", " << event.md.instrument.isin << ") "
-            << "price: " << event.md.price << std::endl;
+        std::cout << "Listener " << id_ << " received Market_Data:" << std::endl
+            << "instrument: (" << trigger.instrument.id << ", " << trigger.instrument.isin << ") "
+            << "price: " << trigger.price << std::endl;
         
    
         // TO DO: make strategy more general using strategy class
         double priceTreshold = 100.0;
-        if (event.md.price >= priceTreshold)
+        if (trigger.price >= priceTreshold)
         {
-            Order newOrder (event.md.instrument, event.md.price, 100, State::New); 
+            Order newOrder (trigger.instrument, trigger.price, 100, State::New); 
 
             // Lock the queue and push the order
             {
                 std::lock_guard<std::mutex> lock(pool_mutex);
                 orderPool.push(newOrder);
             }
-
         }
-
     }
 
     void start() {
@@ -240,8 +148,8 @@ private:
                 if (stop_) break;
             }
 
-            Event event = eventSource_->getNextEvent();
-            onEvent(event);
+            MarketData trigger = eventSource_->getNextData();
+            onEvent(trigger);
         }
     }
 
@@ -255,7 +163,7 @@ private:
 
 std::ofstream file;
 
-// Stremer function to write orders to the file asynchronously
+// Streamer function to write orders to the file asynchronously from the queue
 void fileStreamer() {
 
     while (true) {
@@ -344,12 +252,10 @@ private:
             std::string decrypted = encrypt_decrypt(std::string(buffer));  
             std::cout << "Received (decrypted): " << decrypted << std::endl;
             std::string isin_received = chop_by_delimiter(decrypted, ' ');
-            Financial_Instrument fi("1", isin_received);
+            FinancialInstrument fi("1", isin_received);
             double price_recived = std::stod(chop_by_delimiter(decrypted, ' '));
-            Market_Data md(fi, price_recived, Data_Time());
-            Event event{event_id++, "Sample event message", md};
-            std::cout << "Generated event: " << event.id << std::endl;
-            eventSource_->fireEvent(event);
+            MarketData md(fi, price_recived, Data_Time());
+            eventSource_->fireEvent(md);
 
         }
     }

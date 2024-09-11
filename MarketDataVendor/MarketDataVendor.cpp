@@ -5,69 +5,8 @@
 #include <cstring>
 #include <string>
 #include <random>
-#ifdef _WIN32
-    #include <winsock2.h>
-    #pragma comment(lib, "ws2_32.lib")
-    typedef int socklen_t;
-#else
-    #include <sys/socket.h>
-    #include <arpa/inet.h>
-    #include <unistd.h>
-#endif
 
-const int PORT = 8080;
-const int BUFFER_SIZE = 1024;
-
-void encrypt_decrypt(char *data, size_t len) {
-    for (size_t i = 0; i < len; ++i) {
-        data[i] ^= 0xAA;
-    }
-}
-
-void init_sockets() {
-#ifdef _WIN32
-    WSADATA wsaData;
-    WSAStartup(MAKEWORD(2, 2), &wsaData);
-#endif
-}
-
-void cleanup_sockets() {
-#ifdef _WIN32
-    WSACleanup();
-#endif
-}
-
-int readCross(int socket, char* buffer, const int BUFFER_SIZE) {
-#ifdef _WIN32 
-    return recv(socket, buffer, BUFFER_SIZE,0);
-#elif         
-    return read(socket, buffer, BUFFER_SIZE);
-#endif        
-}
-
-void closeCross(int socket) {
-#ifdef _WIN32
-    closesocket(socket);  
-#elif
-    close(socket);      
-#endif
-}
-
-std::string chop_by_delimiter(std::string &input, char delimiter) {
-    size_t delimiterPos = input.find(delimiter);
-    
-    if (delimiterPos == std::string::npos) {
-        std::string result = input;
-        input.clear();
-        return result;
-    }
-    
-    std::string result = input.substr(0, delimiterPos);
-    input.erase(0, delimiterPos + 1);
-    result.erase(std::remove_if(result.begin(), result.end(), [](unsigned char c) { return std::isspace(c); }), result.end());
-
-    return result;
-}
+#include "..\common.cpp"
 
 struct StockData {
     std::string name;
@@ -128,9 +67,8 @@ int main() {
         char buffer[BUFFER_SIZE] = {0};
 
         int valread = readCross(new_socket, buffer, BUFFER_SIZE);
-        encrypt_decrypt(buffer, valread);  
-        std::cout << "Received (decrypted): " << buffer << std::endl;
-        std::string message(buffer);
+        std::string message = encrypt_decrypt(std::string(buffer, valread));  
+        std::cout << "Received (decrypted): " << message << std::endl;
         std::string word = chop_by_delimiter(message, ' ');
         if (word == "stop") run = false;
         else if (word == "market")
@@ -139,7 +77,7 @@ int main() {
             auto it = std::find_if(universe.begin(), universe.end(), [isin](const StockData& s) {return s.isin == isin; });
             if (it != universe.end()) {
                 std::string reply = isin+" "+std::to_string(it->price);
-                encrypt_decrypt(&reply[0], reply.length());
+                reply = encrypt_decrypt(reply);
                 send(new_socket, reply.c_str(), reply.length(), 0);
     
                 std::cout << "Encrypted message sent." << std::endl;
@@ -152,7 +90,7 @@ int main() {
 
         }
 
-        double dt = 0.01;
+        double dt = 0.0001;
 
         std::normal_distribution<> d; 
         if (dt != 0) d = std::normal_distribution<>(0, sqrt(dt));
@@ -160,6 +98,7 @@ int main() {
         {
             if (dt != 0)
             {
+                //Symulating geometric browninan motion to provide dummy market data to the application
                 stock.price = exp((stock.mi-stock.sigma*stock.sigma/2.0)*dt+stock.sigma*d(gen))*stock.price;
             }
         }

@@ -7,6 +7,12 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RBI", "RBI.vcxproj", "{CB71
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MarketDataVendor", "MarketDataVendor\MarketDataVendor.vcxproj", "{E3DA0A19-0D63-4B69-888F-4550732D9FB4}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{BCB75362-4B02-4C9C-856B-FEE806CE5AA6}"
+	ProjectSection(SolutionItems) = preProject
+		common.cpp = common.cpp
+		common.h = common.h
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
